@@ -1,0 +1,62 @@
+name: DeepCam mobile builds
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run build
+      - run: npx cap add android
+      - run: npx cap sync android
+      - name: Add camera permission
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          marker='<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          if 'android.permission.CAMERA' not in s:
+              s=s.replace(marker,marker+'\n    <uses-permission android:name="android.permission.CAMERA" />')
+          p.write_text(s)
+          PY
+      - run: cd android && ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deepcam-android-debug
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+  ios:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run build
+      - run: npx cap add ios
+      - run: npx cap sync ios
+      - name: Add camera usage description
+        run: /usr/libexec/PlistBuddy -c 'Add :NSCameraUsageDescription string DeepCam needs camera access for live face replacement.' ios/App/App/Info.plist || true
+      - name: Build unsigned iOS archive
+        run: cd ios/App && xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos -archivePath "$RUNNER_TEMP/DeepCam.xcarchive" CODE_SIGNING_ALLOWED=NO archive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deepcam-ios-archive
+          path: ${{ runner.temp }}/DeepCam.xcarchive
+          if-no-files-found: error
