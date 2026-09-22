@@ -44,18 +44,26 @@ _ORT_THREAD_PATCHED = False
 
 
 def _configure_onnxruntime_threads() -> None:
-    """Force every subsequently-created ORT session to use tiny thread pools."""
+    """Bound ORT thread pools without replacing InferenceSession with a function.
+
+    InsightFace defines PickableInferenceSession by subclassing
+    onnxruntime.InferenceSession. Replacing InferenceSession itself with a
+    Python function breaks that class definition on Python 3.12 and produces
+    "function() argument 'code' must be code, not str".
+    """
     global _ORT_THREAD_PATCHED
     if _ORT_THREAD_PATCHED:
         return
 
+    # Import InsightFace first so its PickableInferenceSession subclass is
+    # created from the real ORT InferenceSession class.
+    import insightface  # noqa: F401
     import onnxruntime
 
-    original = onnxruntime.InferenceSession
     intra = max(1, int(os.getenv("DEEPCAM_ORT_INTRA_THREADS", "1")))
     inter = max(1, int(os.getenv("DEEPCAM_ORT_INTER_THREADS", "1")))
 
-    def bounded_inference_session(*args, **kwargs):
+    def bounded_init(self, model_path, **kwargs):
         options = kwargs.get("sess_options")
         if options is None:
             options = onnxruntime.SessionOptions()
@@ -64,9 +72,12 @@ def _configure_onnxruntime_threads() -> None:
         options.inter_op_num_threads = inter
         options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
         options.enable_mem_pattern = False
-        return original(*args, **kwargs)
+        _original_pickable_init(self, model_path, **kwargs)
 
-    onnxruntime.InferenceSession = bounded_inference_session
+    from insightface.model_zoo import model_zoo
+    global _original_pickable_init
+    _original_pickable_init = model_zoo.PickableInferenceSession.__init__
+    model_zoo.PickableInferenceSession.__init__ = bounded_init
     _ORT_THREAD_PATCHED = True
 
 
