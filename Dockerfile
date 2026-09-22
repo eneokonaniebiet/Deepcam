@@ -5,6 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
     build-essential \
     ffmpeg \
     libgl1 \
@@ -12,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     ca-certificates \
+    && gcc --version && g++ --version && make --version \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
