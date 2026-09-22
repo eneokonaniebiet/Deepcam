@@ -1,10 +1,14 @@
 FROM python:3.12-slim
 
+# Cache-bust native toolchain layer after compiler-related fixes.
+ARG DEEPCAM_BUILD_TOOLCHAIN_REV=20260922-2
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN echo "[DEEPCAM BUILD] toolchain rev ${DEEPCAM_BUILD_TOOLCHAIN_REV}" \
+    && apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     make \
