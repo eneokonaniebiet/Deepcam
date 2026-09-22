@@ -34,3 +34,5 @@ RUN chmod +x /workspace/build.sh && /workspace/build.sh
 
 EXPOSE 10000
 CMD ["python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "10000"]
+
+# Railway source-sync marker: EGL runtime fix must be deployed from current main.
