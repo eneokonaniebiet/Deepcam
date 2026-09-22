@@ -319,3 +319,130 @@ async def process(source: UploadFile=File(...), target: UploadFile=File(...)):
         return FileResponse(output_path,media_type=media_type,filename=output_path.name)
     except Exception as exc:
         raise HTTPException(status_code=500,detail=str(exc))
+
+# Optional Render gateway mode. Railway services leave DEEPCAM_INFERENCE_URL unset
+# and therefore continue to use the real local Deep-Live-Cam implementation above.
+_DEEPCAM_INFERENCE_URL = os.getenv("DEEPCAM_INFERENCE_URL", "").rstrip("/")
+if _DEEPCAM_INFERENCE_URL:
+    import httpx
+    import websockets
+
+    _UPSTREAM_WS = _DEEPCAM_INFERENCE_URL.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+    _ORIGINAL_APP = app
+    _GATEWAY_HTTP_TIMEOUT = httpx.Timeout(
+        connect=15.0,
+        read=float(os.getenv("DEEPCAM_GATEWAY_READ_TIMEOUT", "180")),
+        write=30.0,
+        pool=15.0,
+    )
+
+    class _DeepcamGateway:
+        def __init__(self, downstream):
+            self.downstream = downstream
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http":
+                await self._http(scope, receive, send)
+                return
+            if scope["type"] == "websocket":
+                await self._ws(scope, receive, send)
+                return
+            await self.downstream(scope, receive, send)
+
+        @staticmethod
+        def _path(scope):
+            path = scope.get("path", "/")
+            query = scope.get("query_string", b"")
+            return path + (("?" + query.decode("latin-1")) if query else "")
+
+        async def _http(self, scope, receive, send):
+            body = bytearray()
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                if message["type"] != "http.request":
+                    continue
+                body.extend(message.get("body", b""))
+                if not message.get("more_body", False):
+                    break
+
+            headers = {
+                k.decode("latin-1"): v.decode("latin-1")
+                for k, v in scope.get("headers", [])
+                if k.lower() not in {b"host", b"content-length"}
+            }
+            url = _DEEPCAM_INFERENCE_URL + self._path(scope)
+
+            timeout = _GATEWAY_HTTP_TIMEOUT
+            if scope.get("path") == "/process":
+                timeout = httpx.Timeout(connect=15.0, read=900.0, write=60.0, pool=15.0)
+
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    upstream = await client.request(
+                        scope["method"],
+                        url,
+                        headers=headers,
+                        content=bytes(body),
+                    )
+            except httpx.HTTPError as exc:
+                payload = (f'{{"detail":"Inference backend unavailable: {exc}"}}').encode()
+                await send({
+                    "type": "http.response.start",
+                    "status": 502,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode())],
+                })
+                await send({"type": "http.response.body", "body": payload})
+                return
+
+            response_headers = [
+                (k.encode("latin-1"), v.encode("latin-1"))
+                for k, v in upstream.headers.items()
+                if k.lower() not in {"content-length", "transfer-encoding", "connection"}
+            ]
+            await send({"type": "http.response.start", "status": upstream.status_code, "headers": response_headers})
+            await send({"type": "http.response.body", "body": upstream.content})
+
+        async def _ws(self, scope, receive, send):
+            session_path = scope.get("path", "/")
+            upstream_url = _UPSTREAM_WS + session_path
+            try:
+                async with websockets.connect(
+                    upstream_url,
+                    max_size=4 * 1024 * 1024,
+                    ping_interval=20,
+                    ping_timeout=20,
+                    close_timeout=5,
+                ) as upstream:
+
+                    async def client_to_upstream():
+                        while True:
+                            msg = await receive()
+                            if msg["type"] == "websocket.disconnect":
+                                return
+                            if msg["type"] == "websocket.receive":
+                                if msg.get("bytes") is not None:
+                                    await upstream.send(msg["bytes"])
+                                elif msg.get("text") is not None:
+                                    await upstream.send(msg["text"])
+
+                    async def upstream_to_client():
+                        await send({"type": "websocket.accept"})
+                        while True:
+                            msg = await upstream.recv()
+                            if isinstance(msg, bytes):
+                                await send({"type": "websocket.send", "bytes": msg})
+                            else:
+                                await send({"type": "websocket.send", "text": msg})
+
+                    # Accept only after the upstream connection succeeds so the
+                    # phone gets a real failure rather than a fake live session.
+                    await asyncio.gather(client_to_upstream(), upstream_to_client())
+            except Exception as exc:
+                try:
+                    await send({"type": "websocket.close", "code": 1011, "reason": f"Gateway upstream error: {exc}"})
+                except Exception:
+                    pass
+
+    app = _DeepcamGateway(_ORIGINAL_APP)
