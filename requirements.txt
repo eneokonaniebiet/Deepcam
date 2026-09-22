@@ -16,3 +16,7 @@ opennsfw2==0.18.0
 keras>=3.0.0
 protobuf>=6.33.5,<8
 pygrabber; sys_platform == 'win32'
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+python-multipart>=0.0.20,<1
+static-ffmpeg>=2.7,<3
