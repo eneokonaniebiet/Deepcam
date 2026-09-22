@@ -7,6 +7,15 @@ import time
 import uuid
 from pathlib import Path
 
+# Keep the live worker's native thread footprint bounded before InsightFace/
+# ONNX Runtime creates any inference sessions. This is important on small
+# Render instances where ORT's default Eigen thread pool can exhaust memory.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -31,6 +40,35 @@ LIVE_JPEG_QUALITY = int(os.getenv("DEEPCAM_LIVE_JPEG_QUALITY", "82"))
 LIVE_MAX_WIDTH = int(os.getenv("DEEPCAM_LIVE_MAX_WIDTH", "640"))
 LIVE_MAX_HEIGHT = int(os.getenv("DEEPCAM_LIVE_MAX_HEIGHT", "480"))
 _RUNTIME_READY = False
+_ORT_THREAD_PATCHED = False
+
+
+def _configure_onnxruntime_threads() -> None:
+    """Force every subsequently-created ORT session to use tiny thread pools."""
+    global _ORT_THREAD_PATCHED
+    if _ORT_THREAD_PATCHED:
+        return
+
+    import onnxruntime
+
+    original = onnxruntime.InferenceSession
+    intra = max(1, int(os.getenv("DEEPCAM_ORT_INTRA_THREADS", "1")))
+    inter = max(1, int(os.getenv("DEEPCAM_ORT_INTER_THREADS", "1")))
+
+    def bounded_inference_session(*args, **kwargs):
+        options = kwargs.get("sess_options")
+        if options is None:
+            options = onnxruntime.SessionOptions()
+            kwargs["sess_options"] = options
+        options.intra_op_num_threads = intra
+        options.inter_op_num_threads = inter
+        options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+        options.enable_mem_pattern = False
+        return original(*args, **kwargs)
+
+    onnxruntime.InferenceSession = bounded_inference_session
+    _ORT_THREAD_PATCHED = True
+
 
 @app.get("/")
 def root():
@@ -73,7 +111,7 @@ def run_deepcam(source_path: Path, target_path: Path, output_path: Path) -> None
     modules.globals.live_mirror=False
     modules.globals.live_resizable=False
     modules.globals.max_memory=int(os.getenv("DEEPCAM_MAX_MEMORY_GB","1"))
-    modules.globals.execution_threads=int(os.getenv("DEEPCAM_EXECUTION_THREADS","2"))
+    modules.globals.execution_threads=int(os.getenv("DEEPCAM_EXECUTION_THREADS","1"))
     modules.globals.execution_providers=core.decode_execution_providers(os.getenv("DEEPCAM_EXECUTION_PROVIDER","cpu").split(","))
     if not modules.globals.execution_providers:
         modules.globals.execution_providers=core.decode_execution_providers(["cpu"])
@@ -89,6 +127,7 @@ def configure_live_runtime() -> None:
     if _RUNTIME_READY:
         return
     sys.path.insert(0, str(APP_ROOT))
+    _configure_onnxruntime_threads()
     import modules.globals
     from modules import core
     modules.globals.frame_processors = ["face_swapper"]
@@ -100,7 +139,7 @@ def configure_live_runtime() -> None:
     modules.globals.opacity = 1.0
     modules.globals.sharpness = 0.0
     modules.globals.enable_interpolation = False
-    modules.globals.execution_threads = int(os.getenv("DEEPCAM_EXECUTION_THREADS","2"))
+    modules.globals.execution_threads = int(os.getenv("DEEPCAM_EXECUTION_THREADS","1"))
     modules.globals.max_memory = int(os.getenv("DEEPCAM_MAX_MEMORY_GB","1"))
     modules.globals.execution_providers = core.decode_execution_providers(
         os.getenv("DEEPCAM_EXECUTION_PROVIDER","cpu").split(",")
