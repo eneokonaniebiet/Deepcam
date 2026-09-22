@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import cv2
 import numpy as np
@@ -20,6 +21,7 @@ import static_ffmpeg
 static_ffmpeg.add_paths(weak=True)
 
 app = FastAPI(title="Deepcam Backend", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 PROCESS_LOCK = threading.Lock()
 LIVE_LOCK = threading.Lock()
 LIVE_SESSIONS = {}
