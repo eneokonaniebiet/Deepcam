@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
-# Cache-bust native toolchain layer after compiler-related fixes.
-ARG DEEPCAM_BUILD_TOOLCHAIN_REV=20260922-2
+# Cache-bust native toolchain layer after compiler/runtime dependency fixes.
+ARG DEEPCAM_BUILD_TOOLCHAIN_REV=20260922-3
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -15,11 +15,16 @@ RUN echo "[DEEPCAM BUILD] toolchain rev ${DEEPCAM_BUILD_TOOLCHAIN_REV}" \
     build-essential \
     ffmpeg \
     libgl1 \
+    libegl1 \
     libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
     curl \
     git \
     ca-certificates \
     && gcc --version && g++ --version && make --version \
+    && ldconfig -p | grep -E 'libEGL.so.1|libGL.so.1' \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
