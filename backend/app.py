@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 import cv2
 import numpy as np
 
@@ -158,6 +158,49 @@ def process_live_frame(source_face, raw: bytes) -> bytes:
     if not ok:
         raise RuntimeError("Failed to encode processed camera frame")
     return encoded.tobytes()
+
+
+@app.post("/stream-swap")
+async def stream_swap(
+    source_image: UploadFile = File(...),
+    target_frame_stream: UploadFile = File(...),
+):
+    """Single-frame compatibility endpoint using the actual Deep-Live-Cam swapper."""
+    source_raw = await source_image.read()
+    target_raw = await target_frame_stream.read()
+    if not source_raw or not target_raw:
+        raise HTTPException(status_code=400, detail="Source and target frame are required")
+    if len(source_raw) > 10 * 1024 * 1024 or len(target_raw) > LIVE_MAX_FRAME_BYTES:
+        raise HTTPException(status_code=413, detail="Payload is too large")
+
+    try:
+        def run_once():
+            configure_live_runtime()
+            source_image_mat = cv2.imdecode(np.frombuffer(source_raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+            target_image_mat = cv2.imdecode(np.frombuffer(target_raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if source_image_mat is None or target_image_mat is None:
+                raise ValueError("Source or target image could not be decoded")
+            from modules.face_analyser import get_one_face, detect_one_face_fast
+            from modules.processors.frame.face_swapper import swap_face
+            source_face = get_one_face(source_image_mat)
+            target_face = detect_one_face_fast(target_image_mat)
+            if source_face is None:
+                raise ValueError("No face detected in source image")
+            if target_face is None:
+                raise ValueError("No face detected in target frame")
+            output = swap_face(source_face, target_face, target_image_mat)
+            ok, encoded = cv2.imencode(".jpg", output, [cv2.IMWRITE_JPEG_QUALITY, LIVE_JPEG_QUALITY])
+            if not ok:
+                raise RuntimeError("Failed to encode output frame")
+            return encoded.tobytes()
+
+        with LIVE_LOCK:
+            result = await asyncio.to_thread(run_once)
+        return Response(content=result, media_type="image/jpeg")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/live/source")
