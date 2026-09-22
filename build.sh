@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Railway/BuildKit can reuse cached base layers. Fail early if the native
+# toolchain is missing rather than letting InsightFace fail deep inside pip.
+if ! command -v g++ >/dev/null 2>&1; then
+  echo "[DEEPCAM BUILD] g++ missing; installing native build toolchain"
+  apt-get update
+  apt-get install -y --no-install-recommends gcc g++ make build-essential
+  rm -rf /var/lib/apt/lists/*
+fi
+g++ --version
+
 python -m pip install --upgrade pip
 python -m pip install -r backend/requirements.txt
 
