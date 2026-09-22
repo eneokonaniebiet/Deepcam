@@ -1,11 +1,22 @@
 services:
   - type: web
-    name: deepcam-api
-    runtime: python
-    plan: free
-    region: frankfurt
+    name: deep-live-cam-headless-engine
+    runtime: docker
+    plan: starter
+    region: oregon
     branch: main
-    buildCommand: apt-get update && apt-get install -y ffmpeg && pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     autoDeploy: true
+    envVars:
+      - key: NUM_THREADS
+        value: "4"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: DEEPCAM_EXECUTION_PROVIDER
+        value: "cpu"
+      - key: DEEPCAM_EXECUTION_THREADS
+        value: "4"
+      - key: DEEPCAM_MAX_MEMORY_GB
+        value: "2"
