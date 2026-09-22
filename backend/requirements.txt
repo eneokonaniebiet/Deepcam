@@ -1,4 +1,17 @@
 fastapi>=0.115,<1
 uvicorn[standard]>=0.34,<1
 python-multipart>=0.0.20,<1
--r ../requirements.txt
+static-ffmpeg==3.0
+numpy>=2.0,<3
+typing-extensions>=4.15.0
+opencv-python-headless==4.14.0.94
+onnx==1.22.0
+onnxruntime==1.23.0
+insightface==0.7.3
+psutil==7.2.2
+PySide6>=6.7,<7
+pillow==12.3.0
+tqdm>=4.66.3
+opennsfw2==0.18.0
+keras>=3.0.0
+protobuf>=6.33.5,<8
