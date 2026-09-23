@@ -72,6 +72,11 @@ def _configure_onnxruntime_threads() -> None:
         options.inter_op_num_threads = inter
         options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
         options.enable_mem_pattern = False
+        # Disable ORT CPU arena growth for the 265 MB FP16 swap model. The
+        # arena can reserve a large peak working set during graph/session
+        # initialization, which is fatal on small Railway containers.
+        options.enable_cpu_mem_arena = False
+        options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_BASIC
         _original_pickable_init(self, model_path, **kwargs)
 
     from insightface.model_zoo import model_zoo
