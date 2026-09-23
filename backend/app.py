@@ -254,7 +254,11 @@ async def stream_swap(
             result = await asyncio.to_thread(run_once)
         return Response(content=result, media_type="image/jpeg")
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        traceback.print_exc()
+        exc_type = f"{type(exc).__module__}.{type(exc).__name__}"
+        detail = f"{exc_type}: {str(exc)!r}"
+        print(f"[DEEPCAM STREAM VALUEERROR] {detail}", flush=True)
+        raise HTTPException(status_code=422, detail=detail)
     except BaseException as exc:
         traceback.print_exc()
         exc_type = f"{type(exc).__module__}.{type(exc).__name__}"
