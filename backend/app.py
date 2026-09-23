@@ -255,10 +255,13 @@ async def stream_swap(
         return Response(content=result, media_type="image/jpeg")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except Exception as exc:
+    except BaseException as exc:
         traceback.print_exc()
-        message = str(exc) or f"{type(exc).__name__}: {repr(exc)}"
-        raise HTTPException(status_code=500, detail=message)
+        exc_type = f"{type(exc).__module__}.{type(exc).__name__}"
+        message = str(exc)
+        detail = f"{exc_type}: {message!r}"
+        print(f"[DEEPCAM STREAM ERROR] {detail}", flush=True)
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @app.post("/live/source")
