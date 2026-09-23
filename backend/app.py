@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import uuid
+import traceback
 from pathlib import Path
 
 # Keep the live worker's native thread footprint bounded before InsightFace/
@@ -255,7 +256,9 @@ async def stream_swap(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        traceback.print_exc()
+        message = str(exc) or f"{type(exc).__name__}: {repr(exc)}"
+        raise HTTPException(status_code=500, detail=message)
 
 
 @app.post("/live/source")
