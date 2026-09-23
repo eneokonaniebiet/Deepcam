@@ -33,10 +33,18 @@ def get_face_analyser() -> Any:
 
                 ensure_insightface_pack('buffalo_l')
                 providers = build_provider_config()
+                # The cloud live endpoint only enables the face swapper.  Loading the
+                # 106-point landmark model adds another ONNX session and a large
+                # resident allocation that is unnecessary for detection/recognition.
+                # Keep landmarks available for the full desktop app, but allow the
+                # constrained cloud runtime to opt into the minimal analyser.
+                allowed_modules = ['detection', 'recognition']
+                if os.getenv('DEEPCAM_FULL_FACE_ANALYSER', '0') == '1':
+                    allowed_modules.append('landmark_2d_106')
                 FACE_ANALYSER = insightface.app.FaceAnalysis(
                     name='buffalo_l',
                     providers=providers,
-                    allowed_modules=['detection', 'recognition', 'landmark_2d_106']
+                    allowed_modules=allowed_modules
                 )
                 FACE_ANALYSER.prepare(ctx_id=0, det_size=DET_SIZE)
                 _optimize_det_model(FACE_ANALYSER, providers)
