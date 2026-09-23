@@ -283,9 +283,29 @@ def get_face_swapper() -> Any:
                         providers_config.append(OPENVINO_PROVIDER_CONFIG)
                     else:
                         providers_config.append(p)
+                # Build the swap session with the smallest practical CPU allocator
+                # footprint.  InsightFace forwards sess_options to its
+                # PickableInferenceSession.  This is especially important on
+                # 1 GB containers where the 265 MB FP16 model otherwise causes
+                # a transient allocator peak during graph initialization.
+                import onnxruntime
+                swap_options = onnxruntime.SessionOptions()
+                swap_options.intra_op_num_threads = max(
+                    1, int(os.getenv("DEEPCAM_ORT_INTRA_THREADS", "1"))
+                )
+                swap_options.inter_op_num_threads = max(
+                    1, int(os.getenv("DEEPCAM_ORT_INTER_THREADS", "1"))
+                )
+                swap_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+                swap_options.enable_mem_pattern = False
+                swap_options.enable_cpu_mem_arena = False
+                swap_options.graph_optimization_level = (
+                    onnxruntime.GraphOptimizationLevel.ORT_DISABLE_ALL
+                )
                 FACE_SWAPPER = insightface.model_zoo.get_model(
                     model_path,
                     providers=providers_config,
+                    sess_options=swap_options,
                 )
                 # Set up CUDA graph session for faster inference
                 if _HAS_TORCH_CUDA and any(
